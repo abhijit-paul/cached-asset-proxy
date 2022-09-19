@@ -1,0 +1,6 @@
+HOST=0.0.0.0
+PORT=8000
+
+ASSETS_URL="http://localhost:5000"
+
+ALLOW_ORIGINS="https://example1.com,https://example.com"
