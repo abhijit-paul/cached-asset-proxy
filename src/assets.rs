@@ -48,26 +48,21 @@ pub async fn get_asset_definition(
 async fn get(
     asset_id: &str,
     version: u64,
-    file: &str,
+    file_name: &str,
     client: Client,
     config: &Config,
 ) -> Result<warp::hyper::body::Bytes, AppError> {
     let host = &config.assets_url;
-    let url = format!("{host}/getAsset?version={version}", host = host);
+    let url = format!("{host}/getAsset/{asset_id}", host = host, asset_id = asset_id);
 
-    let body = [
-        ("asset_id", asset_id),
-        ("version", &version.to_string()),
-        ("files", file),
+    let params = [
+        ("version", &*version.to_string()),
+        ("file_name", &*file_name.to_string())
     ];
 
     client
-        .post(&url)
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .form(&body)
+        .get(&url)
+        .query(&params)
         .send()
         .await
         .map_err(not_found)?
@@ -136,16 +131,16 @@ pub async fn get_asset(
     client: Client,
     address: &str,
     version: u64,
-    asset_file_name: &str,
+    file_name: &str,
 ) -> Result<Vec<u8>, AppError> {
-    let bytes = get(address, version, asset_file_name, client, config)
+    let bytes = get(address, version, file_name, client, config)
         .await
         .map_err(not_found)?;
 
     let reader = std::io::Cursor::new(bytes.to_vec());
     let mut zip = zip::ZipArchive::new(reader).map_err(not_found)?;
 
-    let mut file = zip.by_name(asset_file_name).map_err(not_found)?;
+    let mut file = zip.by_name(file_name).map_err(not_found)?;
 
     let mut bytes: Vec<u8> = vec![];
     file.read_to_end(&mut bytes).map_err(asset_error)?;
@@ -157,6 +152,7 @@ pub async fn get_asset(
 mod tests {
     use super::*;
 
+    use md5;
     use httpmock::prelude::*;
 
     fn get_config() -> crate::config::Config {
@@ -194,6 +190,42 @@ mod tests {
 
         // assert_eq!(assetmap.is_ok(), true);
         assert_eq!(expected, assetmap.unwrap());
+
+        asset_mock.assert();
+        asset_mock.hits();
+    }
+
+    #[tokio::test]
+    async fn test_asset() {
+        let asset_id = "123e4567-e89b-12d3-a456-426614174000";
+        let version = 2;
+        let file_name = "world.jpeg.zip";
+
+        let mut config = get_config();
+
+        let asset = MockServer::start();
+        config.assets_url = asset.base_url();
+
+        let asset_mock = asset.mock(|when, then| {
+            when.method(GET)
+                .path(format!("/getAsset/{}", asset_id))
+                .query_param("version", &*version.to_string())
+                .query_param("file_name", file_name);
+
+            then.status(200).body_from_file("fixtures/world.jpeg.zip");
+        });
+
+        let client = reqwest::Client::builder()
+            .gzip(true)
+            .build()
+            .expect("could not build http client");
+
+        let expected_md5 = "659f38463f75ca5055b8ee20ba3ea729";
+
+        let asset = get(&asset_id.to_string(), version, file_name, client, &config).await;
+
+        let response_file_digest = format!("{:x}", md5::compute(asset.unwrap()));
+        assert_eq!(expected_md5, response_file_digest);
 
         asset_mock.assert();
         asset_mock.hits();

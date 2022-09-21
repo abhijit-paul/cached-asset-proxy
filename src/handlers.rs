@@ -37,14 +37,14 @@ pub async fn asset(
     redis_conn: PooledRedisConnection,
     addr: String,
     version: u64,
-    file: String,
+    file_name: String,
 ) -> Result<impl Reply, Rejection> {
-    let cached_asset_res = cache::asset(addr.to_owned(), version, file.to_owned(), redis_conn);
+    let cached_asset_res = cache::asset(addr.to_owned(), version, file_name.to_owned(), redis_conn);
     match cached_asset_res {
         Ok(cached_asset) => Ok(cached_asset),
         Err(_) => {
             let contents =
-                assets::get_asset(&config, client.clone(), &addr, version, &file).await?;
+                assets::get_asset(&config, client.clone(), &addr, version, &file_name).await?;
             Ok(contents)
         }
     }
